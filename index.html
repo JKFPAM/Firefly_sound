@@ -3,10 +3,49 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Firefly Mixing Board</title>
+    <title>Firefly Sampler Player</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+  <body class="phase-intro">
+    <div class="background-noise" aria-hidden="true"></div>
+    <main class="experience-shell">
+      <section class="intro-screen" aria-label="Firefly intro animation">
+        <div class="intro-logo-wrap">
+          <img src="/logo.svg" alt="Firefly logo" class="intro-logo" />
+        </div>
+      </section>
+
+      <section class="sampler-screen" aria-label="Firefly sampler">
+        <aside class="inventory-panel" id="inventoryPanel" aria-label="Sound inventory">
+          <div class="inventory-grid" id="inventoryGrid"></div>
+        </aside>
+
+        <section class="stage-panel">
+          <div class="stage-grid" id="stageGrid" role="grid" aria-label="Sampler placement grid"></div>
+
+          <div class="floating-scale-control">
+            <button type="button" id="clearAllBtn" class="floating-clear-btn">Clear all</button>
+            <label class="sr-only" for="bpmControl">BPM</label>
+            <input id="bpmControl" type="range" min="60" max="180" step="1" value="126" />
+            <span id="bpmValue">126 BPM</span>
+            <label class="sr-only" for="globalScale">Grid icon size</label>
+            <input id="globalScale" type="range" min="0.7" max="1.8" step="0.01" value="1" />
+            <span id="globalScaleValue">100%</span>
+          </div>
+
+          <p class="sr-only" id="statusLine" aria-live="polite">
+            Waiting for intro. The sound inventory will slide in from the left.
+          </p>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
