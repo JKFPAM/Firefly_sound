@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.DS_Store
+
+# Build caches
+*.tsbuildinfo
+
+# Local env
+.env
+.env.*
+
+# Vercel
+.vercel/
+
+# Generated sounds
+public/sounds/
+public/sounds-manifest.json
+
+# Large raw archive (not used by app)
+Sounds/
