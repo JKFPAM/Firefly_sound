@@ -29,7 +29,48 @@
         <section class="stage-panel">
           <div class="stage-grid" id="stageGrid" role="grid" aria-label="Sampler placement grid"></div>
 
+          <section class="community-panel" aria-label="Community mixes">
+            <h2 class="community-title">Community</h2>
+
+            <form class="community-save" id="communitySaveForm">
+              <label class="sr-only" for="communityMixName">Mix name</label>
+              <input
+                id="communityMixName"
+                name="mixName"
+                type="text"
+                maxlength="60"
+                placeholder="Mix name"
+                autocomplete="off"
+                required
+              />
+
+              <label class="sr-only" for="communityAuthorName">Your name</label>
+              <input
+                id="communityAuthorName"
+                name="authorName"
+                type="text"
+                maxlength="40"
+                placeholder="Your name"
+                autocomplete="off"
+              />
+
+              <button type="submit" id="communitySaveBtn" class="floating-clear-btn">Save mix</button>
+            </form>
+
+            <label class="sr-only" for="communitySearch">Search mixes</label>
+            <input
+              id="communitySearch"
+              class="community-search"
+              type="search"
+              placeholder="Search mix name"
+              autocomplete="off"
+            />
+
+            <div class="community-list" id="communityList" role="list" aria-live="polite"></div>
+          </section>
+
           <div class="floating-scale-control">
+            <button type="button" id="randomPlaceBtn" class="floating-clear-btn">Random</button>
             <button type="button" id="clearAllBtn" class="floating-clear-btn">Clear all</button>
             <label class="sr-only" for="bpmControl">BPM</label>
             <input id="bpmControl" type="range" min="60" max="180" step="1" value="126" />

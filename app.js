@@ -1,10 +1,13 @@
 const GRID_ROWS = 8;
 const GRID_COLUMNS = 6;
-const ICON_PLAY_ANIM_MS = 420;
+const ICON_PLAY_ANIM_MS_MIN = 180;
+const ICON_PLAY_ANIM_MS_MAX = 420;
 
 const BPM_MIN = 60;
 const BPM_MAX = 180;
 const BPM_DEFAULT = 126;
+const COMMUNITY_STORAGE_KEY = "firefly.community.mixes.v1";
+const COMMUNITY_MAX_ITEMS = 80;
 
 const INTRO_EXPAND_DELAY = 900;
 const INTRO_END_DELAY = 1850;
@@ -281,17 +284,73 @@ const SHAPE_SVGS = {
   `
 };
 
+const INVENTORY_ICON_FILES = [
+  "Frame 2090051514.svg",
+  "Frame 2090051515.svg",
+  "Frame 2090051516.svg",
+  "Frame 2090051517.svg",
+  "Frame 2090051518.svg",
+  "Frame 2090051519.svg",
+  "Frame 2090051520.svg",
+  "Frame 2090051521.svg",
+  "Frame 2090051522.svg",
+  "Frame 2090051523.svg",
+  "Frame 2090051524.svg",
+  "Frame 2090051525.svg",
+  "Frame 2090051526.svg",
+  "Frame 2090051527.svg",
+  "Frame 2090051528.svg",
+  "Frame 2090051529.svg",
+  "Frame 2090051530.svg",
+  "Frame 2090051531.svg",
+  "Frame 2090051532.svg",
+  "Frame 2090051533.svg",
+  "Frame 2090051534.svg",
+  "Frame 2090051535.svg",
+  "Frame 2090051536.svg",
+  "Frame 2090051537.svg",
+  "Frame 2090051538.svg",
+  "Frame 2090051539.svg",
+  "Frame 2090051540.svg",
+  "Frame 2090051541.svg",
+  "Frame 2090051542.svg",
+  "Frame 2090051543.svg",
+  "Frame 2090051544.svg"
+];
+
+function getInventoryIconSrc(index) {
+  const fileName = INVENTORY_ICON_FILES[index];
+  if (!fileName) {
+    return null;
+  }
+  return `/icons/${encodeURIComponent(fileName)}`;
+}
+
+const inventoryIconBySoundId = new Map(
+  SOUND_LIBRARY.map((sound, index) => [sound.id, getInventoryIconSrc(index)])
+);
+
+function getInventoryIconSrcBySoundId(soundId) {
+  return inventoryIconBySoundId.get(soundId) || null;
+}
+
 const inventoryGrid = document.querySelector("#inventoryGrid");
 const stageGrid = document.querySelector("#stageGrid");
 const statusLine = document.querySelector("#statusLine");
 const playSceneButton = document.querySelector("#playSceneBtn");
 const clearGridButton = document.querySelector("#clearGridBtn");
 const clearAllButton = document.querySelector("#clearAllBtn");
+const randomPlaceButton = document.querySelector("#randomPlaceBtn");
 const skipIntroButton = document.querySelector("#skipIntro");
 const globalScaleInput = document.querySelector("#globalScale");
 const globalScaleValue = document.querySelector("#globalScaleValue");
 const bpmInput = document.querySelector("#bpmControl");
 const bpmValue = document.querySelector("#bpmValue");
+const communitySaveForm = document.querySelector("#communitySaveForm");
+const communityMixNameInput = document.querySelector("#communityMixName");
+const communityAuthorNameInput = document.querySelector("#communityAuthorName");
+const communitySearchInput = document.querySelector("#communitySearch");
+const communityList = document.querySelector("#communityList");
 
 const soundsById = new Map(
   SOUND_LIBRARY.map((sound) => [
@@ -321,7 +380,9 @@ const state = {
   transportTimer: null,
   transportStep: 0,
   activeRow: null,
-  playingIconTimers: new Map()
+  playingIconTimers: new Map(),
+  communityMixes: [],
+  communitySearchQuery: ""
 };
 
 function clamp(value, min, max) {
@@ -349,12 +410,229 @@ function clearPlaybackTimers() {
   state.playbackTimers = [];
 }
 
+function createMixId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `mix-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function normalizeCommunityMix(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) {
+    return null;
+  }
+
+  const author =
+    typeof raw.author === "string" && raw.author.trim() ? raw.author.trim() : "Anonymous";
+  const createdAt = Number(raw.createdAt) || Date.now();
+  const bpm = clamp(Math.round(Number(raw.bpm) || BPM_DEFAULT), BPM_MIN, BPM_MAX);
+
+  if (!Array.isArray(raw.slots)) {
+    return null;
+  }
+
+  const slots = raw.slots
+    .map((slot) => {
+      if (!slot || typeof slot !== "object") {
+        return null;
+      }
+      const index = Number(slot.index);
+      const soundId = typeof slot.soundId === "string" ? slot.soundId : "";
+      if (!Number.isInteger(index)) {
+        return null;
+      }
+      if (index < 0 || index >= GRID_ROWS * GRID_COLUMNS) {
+        return null;
+      }
+      if (!soundsById.has(soundId)) {
+        return null;
+      }
+      return { index, soundId };
+    })
+    .filter(Boolean);
+
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : createMixId(),
+    name,
+    author,
+    createdAt,
+    bpm,
+    slots
+  };
+}
+
+function loadCommunityMixes() {
+  try {
+    const raw = localStorage.getItem(COMMUNITY_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map(normalizeCommunityMix)
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, COMMUNITY_MAX_ITEMS);
+  } catch {
+    return [];
+  }
+}
+
+function persistCommunityMixes() {
+  try {
+    localStorage.setItem(COMMUNITY_STORAGE_KEY, JSON.stringify(state.communityMixes));
+  } catch {
+    setStatus("Unable to save to community storage in this browser.");
+  }
+}
+
+function getCurrentGridSlots() {
+  const slots = [];
+  for (let index = 0; index < state.grid.length; index += 1) {
+    const entry = state.grid[index];
+    if (!entry || !soundsById.has(entry.soundId)) {
+      continue;
+    }
+    slots.push({ index, soundId: entry.soundId });
+  }
+  return slots;
+}
+
+function getCommunityMixById(mixId) {
+  return state.communityMixes.find((mix) => mix.id === mixId) || null;
+}
+
+function renderCommunityList() {
+  if (!communityList) {
+    return;
+  }
+
+  communityList.textContent = "";
+  const query = state.communitySearchQuery.trim().toLowerCase();
+  const filteredMixes = state.communityMixes.filter((mix) => {
+    if (!query) {
+      return true;
+    }
+    return (
+      mix.name.toLowerCase().includes(query) ||
+      mix.author.toLowerCase().includes(query)
+    );
+  });
+
+  if (filteredMixes.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "community-empty";
+    empty.textContent = query
+      ? "No mix matches your search."
+      : "No community mixes yet. Save your first one.";
+    communityList.append(empty);
+    return;
+  }
+
+  filteredMixes.forEach((mix) => {
+    const item = document.createElement("article");
+    item.className = "community-item";
+    item.setAttribute("role", "listitem");
+
+    const name = document.createElement("h3");
+    name.className = "community-item-name";
+    name.textContent = mix.name;
+
+    const meta = document.createElement("p");
+    meta.className = "community-item-meta";
+    const dateLabel = new Date(mix.createdAt).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric"
+    });
+    meta.textContent = `${mix.author} • ${mix.slots.length} sounds • ${mix.bpm} BPM • ${dateLabel}`;
+
+    const actions = document.createElement("div");
+    actions.className = "community-item-actions";
+
+    const loadButton = document.createElement("button");
+    loadButton.type = "button";
+    loadButton.className = "community-action-btn";
+    loadButton.dataset.mixId = mix.id;
+    loadButton.textContent = "Load";
+
+    actions.append(loadButton);
+    item.append(name, meta, actions);
+    communityList.append(item);
+  });
+}
+
+function saveCurrentMixToCommunity() {
+  const slots = getCurrentGridSlots();
+  if (slots.length === 0) {
+    setStatus("Place at least one sound before saving to community.");
+    return;
+  }
+
+  const mixName = communityMixNameInput ? communityMixNameInput.value.trim() : "";
+  if (!mixName) {
+    setStatus("Name your mix before saving.");
+    return;
+  }
+
+  const authorName =
+    communityAuthorNameInput && communityAuthorNameInput.value.trim()
+      ? communityAuthorNameInput.value.trim()
+      : "Anonymous";
+
+  const mix = {
+    id: createMixId(),
+    name: mixName,
+    author: authorName,
+    createdAt: Date.now(),
+    bpm: state.bpm,
+    slots
+  };
+
+  state.communityMixes = [mix, ...state.communityMixes].slice(0, COMMUNITY_MAX_ITEMS);
+  persistCommunityMixes();
+  renderCommunityList();
+
+  if (communityMixNameInput) {
+    communityMixNameInput.value = "";
+  }
+
+  setStatus(`Saved "${mix.name}" to community.`);
+}
+
+function applyCommunityMix(mix) {
+  state.grid = Array.from({ length: GRID_ROWS * GRID_COLUMNS }, () => null);
+
+  mix.slots.forEach((slot) => {
+    state.grid[slot.index] = { soundId: slot.soundId };
+  });
+
+  state.bpm = clamp(Math.round(mix.bpm), BPM_MIN, BPM_MAX);
+  setBpmDisplay();
+  refreshTransportClock();
+  renderStage();
+  syncTransport();
+
+  setStatus(`Loaded community mix "${mix.name}".`);
+}
+
 function hasPlacedSounds() {
   return state.grid.some((entry) => Boolean(entry));
 }
 
 function getBeatMs() {
   return Math.round(60000 / state.bpm);
+}
+
+function getIconPlayAnimMs() {
+  return clamp(Math.round(getBeatMs() * 0.72), ICON_PLAY_ANIM_MS_MIN, ICON_PLAY_ANIM_MS_MAX);
 }
 
 function setBpmDisplay() {
@@ -421,6 +699,8 @@ function markGridIconPlaying(index) {
   if (!tile) {
     return;
   }
+  const playMs = getIconPlayAnimMs();
+  tile.style.setProperty("--play-ms", `${playMs}ms`);
 
   tile.classList.remove("is-playing");
   void tile.offsetWidth;
@@ -434,7 +714,7 @@ function markGridIconPlaying(index) {
   const timer = window.setTimeout(() => {
     tile.classList.remove("is-playing");
     state.playingIconTimers.delete(index);
-  }, ICON_PLAY_ANIM_MS);
+  }, playMs);
 
   state.playingIconTimers.set(index, timer);
 }
@@ -507,38 +787,6 @@ function getDragPayload(dataTransfer) {
   }
 }
 
-
-function startResize(event, index) {
-  const cellItem = state.grid[index];
-  if (!cellItem) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  const originX = event.clientX;
-  const originY = event.clientY;
-  const startScale = cellItem.scale;
-
-  const onMove = (moveEvent) => {
-    const delta = (moveEvent.clientX - originX - (moveEvent.clientY - originY)) / 170;
-    cellItem.scale = clamp(startScale + delta, 0.55, 2.25);
-    renderStage();
-  };
-
-  const onUp = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-    setStatus("Icon size updated with the resize dot.");
-  };
-
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
-}
-
 function handleDrop(payload, targetIndex) {
   if (!payload) {
     return;
@@ -550,8 +798,7 @@ function handleDrop(payload, targetIndex) {
     }
 
     state.grid[targetIndex] = {
-      soundId: payload.soundId,
-      scale: 1
+      soundId: payload.soundId
     };
 
     const sound = soundsById.get(payload.soundId);
@@ -651,15 +898,18 @@ function createStageCell(index) {
 
   const glyph = document.createElement("div");
   glyph.className = "placed-glyph";
-  glyph.style.setProperty("--local-scale", item.scale.toFixed(3));
-  glyph.innerHTML = SHAPE_SVGS[sound.shape] || SHAPE_SVGS.square;
-
-  const resizeDot = document.createElement("button");
-  resizeDot.type = "button";
-  resizeDot.className = "resize-dot";
-  resizeDot.dataset.index = String(index);
-  resizeDot.setAttribute("aria-label", "Resize icon");
-  resizeDot.addEventListener("pointerdown", (event) => startResize(event, index));
+  const stageIconSrc = getInventoryIconSrcBySoundId(sound.id);
+  if (stageIconSrc) {
+    const stageIcon = document.createElement("img");
+    stageIcon.alt = "";
+    stageIcon.src = stageIconSrc;
+    stageIcon.decoding = "async";
+    stageIcon.draggable = false;
+    stageIcon.setAttribute("aria-hidden", "true");
+    glyph.append(stageIcon);
+  } else {
+    glyph.innerHTML = SHAPE_SVGS[sound.shape] || SHAPE_SVGS.square;
+  }
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
@@ -668,7 +918,7 @@ function createStageCell(index) {
   deleteButton.setAttribute("aria-label", "Delete sound from grid");
   deleteButton.textContent = "×";
 
-  tile.append(glyph, resizeDot, deleteButton);
+  tile.append(glyph, deleteButton);
   cell.append(tile);
 
   return cell;
@@ -696,11 +946,7 @@ function createInventoryCard(sound, index) {
   card.draggable = true;
   card.title = `${sound.label} (${sound.category})`;
 
-  if (sound.coreDesign) {
-    card.classList.add("is-core");
-  } else {
-    card.classList.add("is-expanded");
-  }
+  card.classList.add("is-core");
 
   if (state.previewSoundId === sound.id) {
     card.classList.add("is-previewing");
@@ -727,25 +973,31 @@ function createInventoryCard(sound, index) {
 
   const symbol = document.createElement("span");
   symbol.className = "inventory-symbol";
-  symbol.innerHTML = SHAPE_SVGS[sound.shape] || SHAPE_SVGS.square;
+  const iconSrc = getInventoryIconSrcBySoundId(sound.id);
+  if (iconSrc) {
+    const icon = document.createElement("img");
+    icon.alt = "";
+    icon.src = iconSrc;
+    icon.decoding = "async";
+    icon.loading = "lazy";
+    icon.draggable = false;
+    icon.setAttribute("aria-hidden", "true");
+    symbol.append(icon);
+  } else {
+    symbol.innerHTML = SHAPE_SVGS[sound.shape] || SHAPE_SVGS.square;
+  }
 
   card.append(symbol);
 
-  if (!sound.coreDesign) {
-    const meta = document.createElement("span");
-    meta.className = "inventory-meta";
+  const meta = document.createElement("span");
+  meta.className = "inventory-meta";
 
-    const category = document.createElement("span");
-    category.className = "inventory-category";
-    category.textContent = sound.category;
+  const category = document.createElement("span");
+  category.className = "inventory-category";
+  category.textContent = sound.category;
 
-    const label = document.createElement("span");
-    label.className = "inventory-label";
-    label.textContent = sound.label;
-
-    meta.append(category, label);
-    card.append(meta);
-  }
+  meta.append(category);
+  card.append(meta);
 
   return card;
 }
@@ -793,6 +1045,37 @@ function clearGrid() {
   setStatus("Grid cleared. Drag new sounds from the inventory.");
 }
 
+function placeRandomSound() {
+  if (SOUND_LIBRARY.length === 0) {
+    return;
+  }
+
+  const sound = SOUND_LIBRARY[Math.floor(Math.random() * SOUND_LIBRARY.length)];
+  const emptyIndexes = [];
+
+  for (let index = 0; index < state.grid.length; index += 1) {
+    if (!state.grid[index]) {
+      emptyIndexes.push(index);
+    }
+  }
+
+  const targetIndexes =
+    emptyIndexes.length > 0
+      ? emptyIndexes
+      : Array.from({ length: state.grid.length }, (_, index) => index);
+  const targetIndex = targetIndexes[Math.floor(Math.random() * targetIndexes.length)];
+
+  state.grid[targetIndex] = { soundId: sound.id };
+  renderStage();
+  playSound(sound.id);
+  markGridIconPlaying(targetIndex);
+  syncTransport();
+
+  const row = Math.floor(targetIndex / GRID_COLUMNS) + 1;
+  const col = (targetIndex % GRID_COLUMNS) + 1;
+  setStatus(`Random placed ${sound.label} at row ${row}, col ${col}.`);
+}
+
 function finalizeIntroNow() {
   clearIntroTimers();
   document.body.classList.remove("phase-intro", "phase-expanding");
@@ -837,10 +1120,6 @@ stageGrid.addEventListener("click", (event) => {
     return;
   }
 
-  if (event.target.closest(".resize-dot")) {
-    return;
-  }
-
   const tile = event.target.closest(".placed-tile");
   if (!tile) {
     return;
@@ -866,6 +1145,41 @@ if (clearGridButton) {
 
 if (clearAllButton) {
   clearAllButton.addEventListener("click", clearGrid);
+}
+
+if (randomPlaceButton) {
+  randomPlaceButton.addEventListener("click", placeRandomSound);
+}
+
+if (communitySaveForm) {
+  communitySaveForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveCurrentMixToCommunity();
+  });
+}
+
+if (communitySearchInput) {
+  communitySearchInput.addEventListener("input", (event) => {
+    state.communitySearchQuery = event.target.value || "";
+    renderCommunityList();
+  });
+}
+
+if (communityList) {
+  communityList.addEventListener("click", (event) => {
+    const actionButton = event.target.closest(".community-action-btn");
+    if (!actionButton) {
+      return;
+    }
+
+    const mixId = actionButton.dataset.mixId || "";
+    const mix = getCommunityMixById(mixId);
+    if (!mix) {
+      return;
+    }
+
+    applyCommunityMix(mix);
+  });
 }
 
 if (skipIntroButton) {
@@ -894,6 +1208,8 @@ if (bpmInput) {
   });
 }
 
+state.communityMixes = loadCommunityMixes();
+renderCommunityList();
 setBpmDisplay();
 renderInventory();
 renderStage();
